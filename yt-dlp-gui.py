@@ -1,8 +1,8 @@
+#!/usr/bin/env python3
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import yt_dlp
 import threading
-import json
 
 
 class YtDlpApp:
@@ -112,8 +112,6 @@ class YtDlpApp:
                 list(set([int(f['abr']) for f in formats if f.get('acodec') != 'none' and f.get('abr') is not None])),
                 reverse=True)
 
-            # --- CORREÇÃO DO ERRO ---
-            # Lógica simplificada e segura para mapear codecs
             codec_map = {'avc': 'h264', 'h264': 'h264', 'hev': 'h265', 'hevc': 'h265', 'vp9': 'vp9', 'av01': 'AV1'}
             ordered_friendly_codecs = []
             for raw_codec in raw_video_codecs:
@@ -126,10 +124,8 @@ class YtDlpApp:
                 if not found_friendly_name:
                     ordered_friendly_codecs.append(raw_codec)
 
-            # Remove duplicados enquanto preserva a ordem
             final_codec_list = list(dict.fromkeys(ordered_friendly_codecs))
             self.codec_menu['values'] = final_codec_list
-            # --- FIM DA CORREÇÃO ---
 
             self.quality_menu['values'] = [f'{res}p' for res in video_resolutions]
             self.audio_quality_menu['values'] = [f'{abr}k' for abr in audio_bitrates]
@@ -138,7 +134,6 @@ class YtDlpApp:
                 self.quality_var.set(f'{video_resolutions[-1]}p')
                 self.quality_menu.config(state="readonly")
 
-            # CORREÇÃO: Lógica mais robusta para definir codec padrão
             if final_codec_list:
                 default_codec = "h264" if "h264" in final_codec_list else final_codec_list[0]
                 self.codec_var.set(default_codec)
@@ -198,7 +193,6 @@ class YtDlpApp:
     def download_thread(self):
         url = self.url_entry.get()
         output_path = self.output_path_var.get()
-        audio_language = self.audio_language_entry.get().strip().lower()
 
         if not url or not output_path:
             messagebox.showerror("Erro", "URL e Pasta de Saída são obrigatórias.")
@@ -207,6 +201,7 @@ class YtDlpApp:
         quality = self.quality_var.get().replace('p', '')
         codec = self.codec_var.get()
         audio_quality = self.audio_quality_var.get().replace('k', '')
+        audio_language = self.audio_language_entry.get().strip().lower()
 
         try:
             ydl_opts = {
@@ -215,25 +210,34 @@ class YtDlpApp:
                 'noplaylist': True,
             }
 
-            # Montando a string de formato para o áudio com filtro de idioma
-            audio_format_string = f'bestaudio[abr>={audio_quality}]'
-            if audio_language:
-                audio_format_string = f'bestaudio[abr>={audio_quality}][lang*={audio_language}]'
+            # --- CORREÇÃO: Lógica de seleção de formato mais tolerante a falhas ---
+            video_selector = "bestvideo"
+            video_filters = []
+            if quality:
+                video_filters.append(f"height<={quality}")
+            if codec:
+                video_filters.append(f"vcodec~={codec}")
+            if video_filters:
+                video_selector = f"bestvideo[{']['.join(video_filters)}]"
 
+            audio_selector = "bestaudio"
+            audio_filters = []
+            if audio_quality:
+                audio_filters.append(f"abr>={audio_quality}")
+            if audio_language:
+                # Usar '?' para indicar que o filtro é opcional/preferencial
+                audio_filters.append(f"lang~={audio_language}?")
+            if audio_filters:
+                audio_selector = f"bestaudio[{']['.join(audio_filters)}]"
+
+            # Formato final com múltiplos fallbacks para máxima robustez
             if self.audio_only_var.get():
-                ydl_opts['format'] = f'{audio_format_string}/bestaudio'
+                ydl_opts['format'] = f'{audio_selector}/bestaudio'
                 ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}]
             else:
-                if not quality:
-                    messagebox.showerror("Erro", "Qualidade de vídeo inválida. Busque os formatos novamente.")
-                    self.download_button.config(state="normal")
-                    self.fetch_button.config(state="normal")
-                    return
-
-                # Monta a string final de formato, priorizando o áudio com idioma
-                ydl_opts[
-                    'format'] = f'bestvideo*[height<={quality}][vcodec~={codec}]+({audio_format_string}/bestaudio)/best'
+                ydl_opts['format'] = f"{video_selector}+{audio_selector}/bestvideo+bestaudio/best"
                 ydl_opts['merge_output_format'] = 'mp4'
+            # --- FIM DA CORREÇÃO ---
 
             self.download_button.config(state="disabled")
             self.fetch_button.config(state="disabled")
