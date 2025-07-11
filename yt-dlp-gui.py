@@ -206,38 +206,36 @@ class YtDlpApp:
         try:
             ydl_opts = {
                 'progress_hooks': [self.progress_hook],
-                'outtmpl': f'{output_path}/%(title)s.%(ext)s',
+                'outtmpl': f'{output_path}/%(title)s - %(resolution)s.%(ext)s',
                 'noplaylist': True,
             }
 
-            # --- CORREÇÃO: Lógica de seleção de formato mais tolerante a falhas ---
-            video_selector = "bestvideo"
-            video_filters = []
-            if quality:
-                video_filters.append(f"height<={quality}")
-            if codec:
-                video_filters.append(f"vcodec~={codec}")
-            if video_filters:
-                video_selector = f"bestvideo[{']['.join(video_filters)}]"
-
+            # --- MELHORIA: Lógica de seleção de formato com prioridades inteligentes ---
             audio_selector = "bestaudio"
-            audio_filters = []
-            if audio_quality:
-                audio_filters.append(f"abr>={audio_quality}")
             if audio_language:
-                # Usar '?' para indicar que o filtro é opcional/preferencial
-                audio_filters.append(f"lang~={audio_language}?")
-            if audio_filters:
-                audio_selector = f"bestaudio[{']['.join(audio_filters)}]"
+                # Prioriza o idioma, mas tem fallback para qualquer idioma
+                audio_selector = f"bestaudio[lang~={audio_language}?]/bestaudio"
 
-            # Formato final com múltiplos fallbacks para máxima robustez
             if self.audio_only_var.get():
-                ydl_opts['format'] = f'{audio_selector}/bestaudio'
+                ydl_opts['format'] = audio_selector
                 ydl_opts['postprocessors'] = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}]
             else:
-                ydl_opts['format'] = f"{video_selector}+{audio_selector}/bestvideo+bestaudio/best"
+                # Constrói uma string de formato com múltiplos fallbacks para máxima robustez
+                # 1. Tenta a combinação exata de qualidade e codec
+                # 2. Se falhar, tenta a qualidade exata com qualquer codec
+                # 3. Se falhar, tenta qualquer qualidade com o codec exato
+                # 4. Como último recurso, pega o melhor vídeo e áudio disponíveis
+                f_quality = f"[height<={quality}]" if quality else ""
+                f_codec = f"[vcodec~={codec}]" if codec else ""
+
+                ydl_opts['format'] = (
+                    f"bestvideo{f_quality}{f_codec}+{audio_selector}/"
+                    f"bestvideo{f_quality}+{audio_selector}/"
+                    f"bestvideo{f_codec}+{audio_selector}/"
+                    "bestvideo+bestaudio/best"
+                )
                 ydl_opts['merge_output_format'] = 'mp4'
-            # --- FIM DA CORREÇÃO ---
+            # --- FIM DA MELHORIA ---
 
             self.download_button.config(state="disabled")
             self.fetch_button.config(state="disabled")
