@@ -44,7 +44,7 @@ Before running the application, ensure you have the following installed and conf
 2.  **Navigate to the Folder:** Open a terminal or command prompt and navigate to the directory where you saved the file.
 3.  **Run the Script:** Use the following command to start the application:
     ```bash
-    python gui_app.py
+    python yt-dlp-gui.py
     ```
 4.  **Use the Interface:**
     * Paste the desired video URL.
